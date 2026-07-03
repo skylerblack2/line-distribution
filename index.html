@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Line Distribution</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="theme-color" content="#e9e9e7">
+<style>
+  :root{
+    --bg:#e9e9e7; --ink:#111; --card:#fff; --glow:#ff8c1a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    padding:12px 12px 130px 12px;
+    padding-bottom:calc(110px + env(safe-area-inset-bottom));
+  }
+  button{font:inherit; color:inherit; cursor:pointer;}
+
+  /* ---------- top card ---------- */
+  .card{
+    background:var(--card); border:2px solid var(--ink); border-radius:22px;
+    padding:14px 16px; max-width:640px; margin:0 auto;
+  }
+  .toprow{display:flex; align-items:center; gap:10px;}
+  #songLabel{flex:1; font-size:20px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #songLabel b{font-weight:800;}
+  .icon{
+    background:none; border:2px solid var(--ink); border-radius:12px;
+    width:38px; height:38px; font-size:18px; line-height:1; flex:none;
+  }
+  .countbtn{width:auto; padding:0 9px; font-size:12px; font-weight:700; letter-spacing:.02em;}
+  .icon.on{background:var(--glow); color:#fff;}
+  #countOverlay{
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    pointer-events:none; z-index:80;
+  }
+  #countOverlay.show{display:flex;}
+  #countOverlay span{
+    font-size:130px; font-weight:800; color:var(--ink);
+    text-shadow:0 0 34px rgba(255,140,26,.85);
+    animation:countpop 1s ease-out;
+  }
+  @keyframes countpop{
+    from{transform:scale(1.5); opacity:.3;}
+    30%{transform:scale(1); opacity:1;}
+    to{opacity:.85;}
+  }
+  .switch{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:600; text-align:right; flex:none; cursor:pointer;}
+  .switch input{display:none;}
+  .switch i{
+    width:46px; height:26px; border-radius:13px; background:#c9c9c9; position:relative;
+    transition:background .2s; flex:none; display:block;
+  }
+  .switch i::after{
+    content:""; position:absolute; top:2px; left:2px; width:22px; height:22px;
+    border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.4); transition:left .2s;
+  }
+  .switch input:checked + i{background:var(--glow);}
+  .switch input:checked + i::after{left:22px;}
+
+  @media (max-width:480px){
+    .toprow{flex-wrap:wrap;}
+    #songLabel{flex:1 1 100%; font-size:18px;}
+  }
+  .transport{display:flex; align-items:center; gap:12px; margin-top:12px;}
+  .playbtn{
+    width:48px; height:48px; border-radius:50%; background:var(--ink); color:#fff;
+    border:none; font-size:18px; flex:none; display:flex; align-items:center; justify-content:center;
+  }
+  #seek{flex:1; accent-color:var(--ink); height:28px;}
+  #timeLabel{font-size:15px; font-weight:600; font-variant-numeric:tabular-nums; flex:none;}
+
+  /* ---------- headline ---------- */
+  #headline{
+    text-align:center; font-size:26px; font-weight:400; line-height:1.25;
+    max-width:520px; margin:26px auto 22px;
+  }
+  #headline b{font-weight:800;}
+
+  /* ---------- member rows ---------- */
+  #list{max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:16px;}
+  .row{
+    display:grid; grid-template-columns:1fr 74px; align-items:center; gap:8px;
+    will-change:transform;
+  }
+  .pill{
+    display:inline-flex; align-items:center; gap:12px;
+    background:var(--card); border:2px solid var(--ink); border-radius:999px;
+    padding:6px 22px 6px 6px; width:max-content; max-width:100%;
+  }
+  .avatar{
+    width:56px; height:56px; border-radius:50%; flex:none;
+    border:2px solid var(--ink); overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-size:24px; font-weight:800; color:#fff;
+    background-size:cover; background-position:center;
+    transition:box-shadow .15s;
+  }
+  .row .name{font-size:24px; font-weight:600; white-space:nowrap;}
+  .active .avatar{
+    box-shadow:0 0 0 4px var(--glow), 0 0 22px 6px rgba(255,140,26,.65);
+  }
+  .barwrap{display:flex; align-items:center; gap:8px; margin:6px 0 0 70px; height:16px;}
+  .bar{
+    height:6px; border-radius:3px; background:var(--ink);
+    width:0%; min-width:0; transition:none;
+  }
+  .barlabel{font-size:15px; font-weight:600; white-space:nowrap; font-variant-numeric:tabular-nums;}
+  .total{
+    font-size:30px; font-weight:600; text-align:right;
+    font-variant-numeric:tabular-nums; align-self:center;
+  }
+
+  /* ---------- bottom bar ---------- */
+  #bottom{
+    position:fixed; left:0; right:0; bottom:0;
+    background:linear-gradient(to top, var(--bg) 78%, transparent);
+    padding:10px 14px calc(12px + env(safe-area-inset-bottom));
+  }
+  .pillbtn{
+    background:var(--card); border:2px solid var(--ink); border-radius:999px;
+    padding:8px 18px; font-size:16px; font-weight:600;
+  }
+  .pillbtn:disabled{opacity:.35;}
+  #holdBar{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    max-width:640px; margin:0 auto;
+  }
+  #holdCircles{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    min-width:0; flex:0 1 auto; flex-wrap:wrap;
+  }
+  .sidebtn{
+    flex:none; width:42px; height:42px; border-radius:50%;
+    background:var(--card); border:2px solid var(--ink); padding:0;
+    font-size:12px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .holdbtn{
+    flex:none; width:64px; height:64px;
+    border-radius:50%; border:2px solid var(--ink);
+    padding:0; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    font-size:26px; font-weight:800; color:#fff;
+    background-size:cover; background-position:center;
+    touch-action:none; -webkit-touch-callout:none; user-select:none; -webkit-user-select:none;
+    transition:box-shadow .15s, transform .1s;
+  }
+  .holdbtn.active{
+    box-shadow:0 0 0 4px var(--glow), 0 0 22px 6px rgba(255,140,26,.65);
+    transform:scale(1.06);
+  }
+  body.playback #holdCircles{opacity:.35; pointer-events:none;}
+  @media (max-width:560px){
+    .holdbtn{width:46px; height:46px; font-size:19px;}
+    .sidebtn{width:38px; height:38px;}
+    #holdCircles{gap:6px;}
+    body{padding-bottom:calc(160px + env(safe-area-inset-bottom));}
+  }
+
+  /* ---------- segment detail view ---------- */
+  .segtrack{display:none; align-items:center; gap:2px; height:14px; min-width:0;}
+  body.detail .segtrack{display:flex;}
+  body.detail .bar{display:none;}
+  .subseg{
+    position:relative; height:10px; border-radius:5px;
+    background:rgba(17,17,17,.16); min-width:7px; cursor:pointer;
+  }
+  .subseg::after{content:""; position:absolute; inset:-9px -2px;} /* bigger tap target */
+  .subseg i{
+    position:absolute; left:0; top:0; bottom:0; width:0%;
+    background:var(--ink); border-radius:5px; display:block;
+  }
+  .subseg.live i{background:var(--glow); width:100%;}
+  #segChip{
+    position:fixed; left:50%; transform:translateX(-50%);
+    bottom:calc(96px + env(safe-area-inset-bottom));
+    background:var(--card); border:2px solid var(--ink); border-radius:999px;
+    padding:6px 8px 6px 16px; display:none; align-items:center; gap:12px;
+    font-size:14px; font-weight:600; white-space:nowrap; z-index:60;
+    box-shadow:0 4px 16px rgba(0,0,0,.18);
+  }
+  #segChip.show{display:flex;}
+  #segChip .pillbtn{padding:5px 14px; font-size:14px;}
+
+  /* ---------- toast ---------- */
+  #toast{
+    position:fixed; left:50%; bottom:150px; transform:translateX(-50%) translateY(10px);
+    background:var(--ink); color:#fff; border-radius:999px; padding:8px 18px;
+    font-size:15px; opacity:0; pointer-events:none; transition:opacity .25s, transform .25s;
+    z-index:50; white-space:nowrap;
+  }
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  /* ---------- dialogs ---------- */
+  dialog{
+    border:2px solid var(--ink); border-radius:22px; padding:20px;
+    width:min(92vw, 560px); max-height:86vh;
+  }
+  dialog::backdrop{background:rgba(0,0,0,.45);}
+  dialog h2{margin:0 0 14px; font-size:22px;}
+  dialog h3{margin:20px 0 8px; font-size:15px; text-transform:uppercase; letter-spacing:.05em; color:#666;}
+  .field{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
+  .field span{width:82px; font-size:14px; font-weight:600; flex:none;}
+  .field input[type=text]{
+    flex:1; font:inherit; border:2px solid var(--ink); border-radius:10px; padding:7px 10px; min-width:0;
+  }
+  .mrow{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
+  .mrow .avbtn{
+    width:44px; height:44px; border-radius:50%; border:2px solid var(--ink); padding:0;
+    overflow:hidden; color:#fff; font-weight:800; font-size:18px; flex:none;
+    background-size:cover; background-position:center;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .mrow input[type=text]{flex:1; font:inherit; border:2px solid var(--ink); border-radius:10px; padding:7px 10px; min-width:0;}
+  .mrow input[type=color]{width:38px; height:38px; border:none; padding:0; background:none; flex:none; cursor:pointer;}
+  .mrow .del{background:none; border:none; font-size:20px; flex:none;}
+  .dlgbtns{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;}
+  .danger{border-color:#c0392b !important; color:#c0392b;}
+  .primary{background:var(--ink); color:#fff;}
+
+  /* ---------- distribution ---------- */
+  #distBody{display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:24px;}
+  #legend{display:flex; flex-direction:column; gap:14px;}
+  .leg .lname{font-weight:800; letter-spacing:.03em; font-size:17px;}
+  .leg .lnums{font-weight:700; font-size:15px; display:flex; gap:18px; font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+
+<header class="card">
+  <div class="toprow">
+    <div id="songLabel"></div>
+    <button id="countBtn" class="icon countbtn" title="Count-in: 3 beats before play starts">3·2·1</button>
+    <button id="detailBtn" class="icon" title="Show segments"><svg viewBox="0 0 20 20" width="18" height="18"><rect x="1" y="8" width="8" height="4.5" rx="2.2" fill="currentColor"/><rect x="10.5" y="8" width="5" height="4.5" rx="2.2" fill="currentColor"/><rect x="17" y="8" width="2.5" height="4.5" rx="1.2" fill="currentColor"/></svg></button>
+    <button id="undoBtn" class="icon" title="Undo last press">↩</button>
+    <button id="gearBtn" class="icon" title="Settings">⚙</button>
+    <label class="switch"><span>Playback<br>Mode</span><input type="checkbox" id="modeToggle"><i></i></label>
+  </div>
+  <div class="transport">
+    <button id="playBtn" class="playbtn">▶</button>
+    <input type="range" id="seek" min="0" max="180" step="0.01" value="0">
+    <div id="timeLabel">0:00 / 3:00</div>
+  </div>
+</header>
+
+<h1 id="headline"></h1>
+<main id="list"></main>
+<div id="toast"></div>
+<div id="countOverlay"></div>
+
+<footer id="bottom">
+  <div id="holdBar">
+    <button id="back3Btn" class="sidebtn" title="Back 3 seconds">↺3s</button>
+    <div id="holdCircles"></div>
+    <button id="distBtn" class="sidebtn" title="View distribution"><svg viewBox="0 0 20 20" width="20" height="20"><path d="M9 3 A 8 8 0 1 0 17.6 11.5 L 9 10.5 Z" fill="currentColor"/><path d="M11 2 a8 8 0 0 1 7.5 7 l-7.5 -.6z" fill="currentColor"/></svg></button>
+  </div>
+</footer>
+<div id="segChip"><span></span><button class="pillbtn danger" id="segDelBtn">Delete</button></div>
+
+<dialog id="distDlg">
+  <h2>Distribution</h2>
+  <div id="distBody"></div>
+  <div class="dlgbtns"><button class="pillbtn" id="distClose">Close</button></div>
+</dialog>
+
+<dialog id="setDlg">
+  <h2>Settings</h2>
+  <div class="field"><span>Group</span><input type="text" id="setGroup"></div>
+  <div class="field"><span>Song title</span><input type="text" id="setTitle"></div>
+  <div class="field"><span>Artist</span><input type="text" id="setArtist"></div>
+  <div class="field"><span>Length</span><input type="text" id="setDur" placeholder="3:00"></div>
+  <div class="field"><span>Audio</span><button class="pillbtn" id="loadAudioBtn">Load audio file…</button><span id="audioName" style="font-size:13px;color:#666;"></span></div>
+  <h3>Members</h3>
+  <div id="memberEditor"></div>
+  <button class="pillbtn" id="addMemberBtn">+ Add member</button>
+  <h3>Data</h3>
+  <div class="dlgbtns">
+    <button class="pillbtn" id="exportBtn">Export JSON</button>
+    <button class="pillbtn" id="importBtn">Import JSON</button>
+    <button class="pillbtn danger" id="clearBtn">Clear all timings</button>
+  </div>
+  <div class="dlgbtns"><button class="pillbtn primary" id="setClose">Done</button></div>
+</dialog>
+
+<input type="file" id="audioFile" accept="audio/*" hidden>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+<input type="file" id="avatarFile" accept="image/*" hidden>
+<audio id="audio" hidden></audio>
+
+<script>
+"use strict";
+/* ================= state ================= */
+const LS_KEY = "line-dist-v1";
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+function defaultState() {
+  return {
+    song: { group: "NewJeans", title: "Magnetic", artist: "ILLIT", duration: 180, audioName: "" },
+    members: [
+      { id: uid(), name: "Minji",    color: "#6666e0", avatar: null },
+      { id: uid(), name: "Hanni",    color: "#f4547c", avatar: null },
+      { id: uid(), name: "Danielle", color: "#f79422", avatar: null },
+      { id: uid(), name: "Haerin",   color: "#66b466", avatar: null },
+      { id: uid(), name: "Hyein",    color: "#bd7ee8", avatar: null },
+    ],
+    segments: [], // {memberId, start, end} seconds into the song
+    mode: "create",
+    countIn: false,
+    detail: false,
+  };
+}
+
+let state = defaultState();
+try {
+  const saved = JSON.parse(localStorage.getItem(LS_KEY));
+  if (saved && saved.members && saved.song) state = Object.assign(defaultState(), saved);
+} catch (e) {}
+
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+    catch (e) { toast("Couldn't save (storage full?)"); }
+  }, 250);
+}
+
+/* ================= clock (audio or manual) ================= */
+const audio = document.getElementById("audio");
+let hasAudio = false;
+let playing = false;
+let baseT = 0, wall = 0; // manual clock
+
+const dur = () => hasAudio && audio.duration ? audio.duration : state.song.duration;
+function now() {
+  if (hasAudio) return audio.currentTime;
+  return playing ? Math.min(dur(), baseT + (performance.now() - wall) / 1000) : baseT;
+}
+/* count-in: 3 beats before playback starts; holds pressed during the
+   count-in become live the instant the song starts */
+let countingIn = false, countTimer = null;
+const pendingHolds = new Set();
+let actx = null;
+function beep(freq) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = freq || 660;
+    o.connect(g); g.connect(actx.destination);
+    g.gain.setValueAtTime(0.25, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.15);
+    o.start(); o.stop(actx.currentTime + 0.16);
+  } catch (e) {}
+}
+const countOverlay = document.getElementById("countOverlay");
+function showCount(n) {
+  countOverlay.innerHTML = "<span>" + n + "</span>";
+  countOverlay.classList.add("show");
+}
+function startPlayback() {
+  if (hasAudio) audio.play();
+  else wall = performance.now();
+  playing = true;
+  updatePlayBtn();
+  const t0 = now();
+  for (const id of pendingHolds) holds.set(id, t0);
+  pendingHolds.clear();
+  updateUndoBtn();
+}
+function startCountIn() {
+  countingIn = true;
+  updatePlayBtn();
+  let n = 3;
+  showCount(n); beep(660);
+  countTimer = setInterval(() => {
+    n--;
+    if (n > 0) { showCount(n); beep(660); }
+    else {
+      clearInterval(countTimer);
+      countingIn = false;
+      countOverlay.classList.remove("show");
+      beep(990);
+      startPlayback();
+    }
+  }, 1000);
+}
+function cancelCountIn() {
+  clearInterval(countTimer);
+  countingIn = false;
+  pendingHolds.clear();
+  countOverlay.classList.remove("show");
+  updatePlayBtn();
+}
+function play() {
+  if (now() >= dur()) seekTo(0);
+  if (state.countIn) startCountIn();
+  else startPlayback();
+}
+function pause() {
+  if (countingIn) { cancelCountIn(); return; }
+  endAllHolds(now());
+  if (hasAudio) audio.pause();
+  else baseT = now();
+  playing = false;
+  updatePlayBtn();
+}
+function seekTo(t) {
+  endAllHolds(now());
+  t = Math.max(0, Math.min(dur(), t));
+  if (hasAudio) audio.currentTime = t;
+  else { baseT = t; wall = performance.now(); }
+}
+audio.addEventListener("ended", () => { endAllHolds(dur()); playing = false; updatePlayBtn(); });
+
+/* ================= segments math ================= */
+function mergedSegs(memberId) {
+  const list = state.segments
+    .filter(s => s.memberId === memberId)
+    .map(s => ({ start: s.start, end: s.end }))
+    .sort((a, b) => a.start - b.start);
+  const out = [];
+  for (const s of list) {
+    const last = out[out.length - 1];
+    if (last && s.start <= last.end) last.end = Math.max(last.end, s.end);
+    else out.push({ ...s });
+  }
+  return out;
+}
+function totalTime(memberId) {
+  return mergedSegs(memberId).reduce((a, s) => a + (s.end - s.start), 0);
+}
+function timeUpTo(memberId, t) {
+  return mergedSegs(memberId).reduce((a, s) => a + Math.max(0, Math.min(s.end, t) - s.start), 0);
+}
+function activeAt(memberId, t) {
+  return mergedSegs(memberId).some(s => s.start <= t && t < s.end);
+}
+
+/* ================= holds (create mode) ================= */
+const holds = new Map(); // memberId -> start time
+function endHold(memberId, at) {
+  if (!holds.has(memberId)) return;
+  const start = holds.get(memberId);
+  holds.delete(memberId);
+  const end = at !== undefined ? at : now();
+  if (end - start > 0.05) {
+    state.segments.push({ memberId, start, end });
+    save();
+    renderSegTracks();
+  }
+  updateUndoBtn();
+}
+function endAllHolds(at) { [...holds.keys()].forEach(id => endHold(id, at)); }
+
+/* ================= DOM refs ================= */
+const $ = id => document.getElementById(id);
+const els = {
+  songLabel: $("songLabel"), headline: $("headline"), list: $("list"),
+  playBtn: $("playBtn"), seek: $("seek"), timeLabel: $("timeLabel"),
+  modeToggle: $("modeToggle"), holdCircles: $("holdCircles"), undoBtn: $("undoBtn"),
+  distDlg: $("distDlg"), distBody: $("distBody"), setDlg: $("setDlg"),
+  toast: $("toast"), memberEditor: $("memberEditor"), audioName: $("audioName"),
+};
+
+/* ================= helpers ================= */
+function fmt(t) {
+  t = Math.max(0, Math.floor(t));
+  return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+}
+function parseDur(str) {
+  str = String(str).trim();
+  if (/^\d+:\d{1,2}$/.test(str)) { const [m, s] = str.split(":").map(Number); return m * 60 + s; }
+  const n = parseFloat(str);
+  return isNaN(n) ? null : n;
+}
+let toastTimer = null;
+function toast(msg) {
+  els.toast.textContent = msg;
+  els.toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove("show"), 1800);
+}
+function styleAvatar(el, m) {
+  if (m.avatar) { el.style.backgroundImage = `url(${m.avatar})`; el.style.backgroundColor = ""; el.textContent = ""; }
+  else { el.style.backgroundImage = ""; el.style.backgroundColor = m.color; el.textContent = (m.name[0] || "?").toUpperCase(); }
+}
+
+/* ================= build member UI ================= */
+const rowEls = new Map();  // memberId -> {row, avatar, name, bar, barlabel, total}
+const holdEls = new Map(); // memberId -> button
+
+function renderMembers() {
+  els.list.innerHTML = "";
+  els.holdCircles.innerHTML = "";
+  rowEls.clear();
+  holdEls.clear();
+  lastOrderKey = "";
+
+  for (const m of state.members) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.dataset.id = m.id;
+    row.innerHTML = `
+      <div>
+        <div class="pill"><div class="avatar"></div><div class="name"></div></div>
+        <div class="barwrap"><div class="bar"></div><div class="segtrack"></div><span class="barlabel">0s</span></div>
+      </div>
+      <div class="total">0</div>`;
+    const parts = {
+      row,
+      avatar: row.querySelector(".avatar"),
+      name: row.querySelector(".name"),
+      bar: row.querySelector(".bar"),
+      segtrack: row.querySelector(".segtrack"),
+      barlabel: row.querySelector(".barlabel"),
+      total: row.querySelector(".total"),
+    };
+    parts.name.textContent = m.name;
+    styleAvatar(parts.avatar, m);
+    rowEls.set(m.id, parts);
+    els.list.appendChild(row);
+
+    const btn = document.createElement("button");
+    btn.className = "holdbtn";
+    btn.dataset.id = m.id;
+    styleAvatar(btn, m);
+    btn.addEventListener("contextmenu", e => e.preventDefault());
+    btn.addEventListener("pointerdown", e => {
+      e.preventDefault();
+      if (state.mode === "playback") return;
+      if (!playing) {
+        if (countingIn) { btn.setPointerCapture(e.pointerId); pendingHolds.add(m.id); return; }
+        toast("Press play first, then hold a member"); return;
+      }
+      btn.setPointerCapture(e.pointerId);
+      holds.set(m.id, now());
+      updateUndoBtn();
+    });
+    const release = () => { pendingHolds.delete(m.id); endHold(m.id); };
+    btn.addEventListener("pointerup", release);
+    btn.addEventListener("pointercancel", release);
+    els.holdCircles.appendChild(btn);
+    holdEls.set(m.id, btn);
+  }
+}
+
+/* ================= segment detail view ================= */
+function renderSegTracks() {
+  if (!state.detail) return;
+  for (const m of state.members) {
+    const r = rowEls.get(m.id);
+    if (!r) continue;
+    r.segtrack.innerHTML = "";
+    for (const s of mergedSegs(m.id)) {
+      const el = document.createElement("div");
+      el.className = "subseg";
+      el.dataset.mid = m.id;
+      el.dataset.start = s.start;
+      el.dataset.end = s.end;
+      el.style.flex = (s.end - s.start) + " 1 0px";
+      el.innerHTML = "<i></i>";
+      r.segtrack.appendChild(el);
+    }
+  }
+}
+
+let chipSeg = null, chipTimer = null;
+const segChip = $("segChip");
+function showSegChip(mid, start, end) {
+  const m = state.members.find(x => x.id === mid);
+  chipSeg = { mid, start, end };
+  segChip.querySelector("span").textContent =
+    `${m ? m.name : "?"} · ${fmt(start)}–${fmt(end)} (${(end - start).toFixed(1)}s)`;
+  segChip.classList.add("show");
+  clearTimeout(chipTimer);
+  chipTimer = setTimeout(hideSegChip, 6000);
+}
+function hideSegChip() { segChip.classList.remove("show"); chipSeg = null; }
+$("segDelBtn").addEventListener("click", () => {
+  if (!chipSeg) return;
+  const m = state.members.find(x => x.id === chipSeg.mid);
+  // a merged segment contains all raw presses inside its span; remove them all
+  state.segments = state.segments.filter(s =>
+    !(s.memberId === chipSeg.mid && s.start >= chipSeg.start - 0.01 && s.end <= chipSeg.end + 0.01));
+  toast(`Deleted ${m ? m.name : ""} ${fmt(chipSeg.start)}–${fmt(chipSeg.end)}`);
+  hideSegChip();
+  save();
+  renderSegTracks();
+  updateUndoBtn();
+});
+els.list.addEventListener("click", e => {
+  const el = e.target.closest(".subseg");
+  if (!el || el.classList.contains("live") || !el.dataset.mid) return;
+  seekTo(+el.dataset.start);
+  if (!playing && !countingIn) startPlayback(); // jump straight in, no count-in for review
+  showSegChip(el.dataset.mid, +el.dataset.start, +el.dataset.end);
+});
+$("detailBtn").addEventListener("click", () => {
+  state.detail = !state.detail;
+  document.body.classList.toggle("detail", state.detail);
+  $("detailBtn").classList.toggle("on", state.detail);
+  if (state.detail) renderSegTracks();
+  else hideSegChip();
+  save();
+  toast(state.detail ? "Segments shown — tap one to play from there" : "Segment view off");
+});
+
+/* ================= header / headline ================= */
+function renderSongMeta() {
+  const s = state.song;
+  els.songLabel.innerHTML = `<b></b> <span style="color:#555"></span>`;
+  els.songLabel.querySelector("b").textContent = s.title;
+  els.songLabel.querySelector("span").textContent = s.artist ? "– " + s.artist : "";
+  els.headline.innerHTML = `How Would <b></b><br>Sing <b></b>?`;
+  const bs = els.headline.querySelectorAll("b");
+  bs[0].textContent = s.group;
+  bs[1].textContent = s.title + (s.artist ? " by " + s.artist : "");
+  els.seek.max = dur();
+}
+
+function updatePlayBtn() { els.playBtn.textContent = (playing || countingIn) ? "❚❚" : "▶"; }
+function updateUndoBtn() { els.undoBtn.disabled = state.segments.length === 0 && holds.size === 0; }
+
+/* ================= main loop ================= */
+let seeking = false;
+let lastOrderKey = "";
+
+function displayedTime(memberId, t) {
+  if (state.mode === "playback") return timeUpTo(memberId, t);
+  let v = totalTime(memberId);
+  if (holds.has(memberId)) v += Math.max(0, t - holds.get(memberId));
+  return v;
+}
+function isActive(memberId, t) {
+  if (state.mode === "playback") return playing && activeAt(memberId, t);
+  return holds.has(memberId) || pendingHolds.has(memberId);
+}
+
+function tick() {
+  const t = now();
+  if (!hasAudio && playing && t >= dur()) { endAllHolds(dur()); baseT = dur(); playing = false; updatePlayBtn(); }
+
+  if (!seeking) els.seek.value = t;
+  els.timeLabel.textContent = fmt(t) + " / " + fmt(dur());
+
+  const times = {};
+  let max = 0;
+  for (const m of state.members) {
+    times[m.id] = displayedTime(m.id, t);
+    if (times[m.id] > max) max = times[m.id];
+  }
+  // detail view scales tracks by full recorded totals (incl. live hold), not accrued playback time
+  let fullTotals = null, maxFull = 0;
+  if (state.detail) {
+    fullTotals = {};
+    for (const m of state.members) {
+      let ft = totalTime(m.id);
+      if (state.mode === "create" && holds.has(m.id)) ft += Math.max(0, t - holds.get(m.id));
+      fullTotals[m.id] = ft;
+      if (ft > maxFull) maxFull = ft;
+    }
+  }
+  for (const m of state.members) {
+    const r = rowEls.get(m.id);
+    if (!r) continue;
+    const v = times[m.id];
+    r.bar.style.width = max > 0 ? (v / max * 78) + "%" : "0%";
+    r.barlabel.textContent = v.toFixed(1) + "s";
+    r.total.textContent = v.toFixed(1);
+    r.row.classList.toggle("active", isActive(m.id, t));
+    const hb = holdEls.get(m.id);
+    if (hb) hb.classList.toggle("active", state.mode === "create" && (holds.has(m.id) || pendingHolds.has(m.id)));
+    if (state.detail) {
+      const track = r.segtrack;
+      track.style.width = maxFull > 0 ? (fullTotals[m.id] / maxFull * 78) + "%" : "0%";
+      let liveEl = null;
+      for (const el of track.children) {
+        if (el.classList.contains("live")) { liveEl = el; continue; }
+        const s0 = +el.dataset.start, s1 = +el.dataset.end;
+        const frac = s1 > s0 ? Math.max(0, Math.min(1, (t - s0) / (s1 - s0))) : 0;
+        el.firstElementChild.style.width = (frac * 100) + "%";
+      }
+      const holding = state.mode === "create" && holds.has(m.id);
+      if (holding) {
+        if (!liveEl) {
+          liveEl = document.createElement("div");
+          liveEl.className = "subseg live";
+          liveEl.innerHTML = "<i></i>";
+          track.appendChild(liveEl);
+        }
+        liveEl.style.flex = Math.max(0.05, t - holds.get(m.id)) + " 1 0px";
+      } else if (liveEl) liveEl.remove();
+    }
+  }
+  maybeReorder(times);
+}
+
+function maybeReorder(times) {
+  const sorted = [...state.members].sort((a, b) => times[b.id] - times[a.id]);
+  const key = sorted.map(m => m.id).join(",");
+  if (key === lastOrderKey) return;
+  lastOrderKey = key;
+  const before = new Map([...els.list.children].map(c => [c.dataset.id, c.getBoundingClientRect().top]));
+  for (const m of sorted) els.list.appendChild(rowEls.get(m.id).row);
+  if (document.hidden) return; // skip FLIP animation when frames are paused
+  for (const c of els.list.children) {
+    const dy = (before.get(c.dataset.id) || 0) - c.getBoundingClientRect().top;
+    if (dy) {
+      c.style.transition = "none";
+      c.style.transform = `translateY(${dy}px)`;
+      requestAnimationFrame(() => {
+        c.style.transition = "transform .45s cubic-bezier(.22,1,.36,1)";
+        c.style.transform = "";
+      });
+    }
+  }
+}
+
+/* ================= transport events ================= */
+els.playBtn.addEventListener("click", () => (playing || countingIn) ? pause() : play());
+$("back3Btn").addEventListener("click", () => seekTo(now() - 3));
+$("countBtn").addEventListener("click", () => {
+  state.countIn = !state.countIn;
+  $("countBtn").classList.toggle("on", state.countIn);
+  save();
+  toast(state.countIn ? "Count-in on: 3 beats before play" : "Count-in off");
+});
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space") return;
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (els.setDlg.open || els.distDlg.open) return;
+  e.preventDefault();
+  if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+  (playing || countingIn) ? pause() : play();
+});
+els.seek.addEventListener("pointerdown", () => seeking = true);
+els.seek.addEventListener("pointerup", () => seeking = false);
+els.seek.addEventListener("input", () => seekTo(parseFloat(els.seek.value)));
+els.undoBtn.addEventListener("click", () => {
+  if (holds.size) { endAllHolds(now()); }
+  const seg = state.segments.pop();
+  if (seg) {
+    const m = state.members.find(x => x.id === seg.memberId);
+    toast(`Undid ${m ? m.name : "?"} (${(seg.end - seg.start).toFixed(1)}s at ${fmt(seg.start)})`);
+    save();
+    renderSegTracks();
+  }
+  updateUndoBtn();
+});
+els.modeToggle.addEventListener("change", () => {
+  endAllHolds(now());
+  state.mode = els.modeToggle.checked ? "playback" : "create";
+  document.body.classList.toggle("playback", state.mode === "playback");
+  save();
+});
+
+/* ================= distribution ================= */
+$("distBtn").addEventListener("click", () => { renderDistribution(); els.distDlg.showModal(); });
+$("distClose").addEventListener("click", () => els.distDlg.close());
+
+function arcPath(cx, cy, r, a0, a1) {
+  const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+  const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
+}
+
+function renderDistribution() {
+  const rows = state.members
+    .map(m => ({ m, t: totalTime(m.id) }))
+    .sort((a, b) => b.t - a.t);
+  const sum = rows.reduce((a, r) => a + r.t, 0);
+  els.distBody.innerHTML = "";
+  if (sum <= 0) {
+    els.distBody.innerHTML = "<p>No timings recorded yet — play the song in create mode and hold a member's button during their part.</p>";
+    return;
+  }
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 240 240");
+  svg.style.width = "min(64vw, 260px)";
+  let a = -Math.PI / 2;
+  for (const r of rows) {
+    if (r.t <= 0) continue;
+    const sweep = r.t / sum * Math.PI * 2;
+    const p = document.createElementNS(NS, "path");
+    p.setAttribute("d", arcPath(120, 120, 112, a, a + Math.max(0.0001, sweep - 0.02)));
+    p.setAttribute("fill", r.m.color);
+    svg.appendChild(p);
+    a += sweep;
+  }
+  const c = document.createElementNS(NS, "circle");
+  c.setAttribute("cx", 120); c.setAttribute("cy", 120); c.setAttribute("r", 32);
+  c.setAttribute("fill", "#cbe94b"); c.setAttribute("stroke", "#fff"); c.setAttribute("stroke-width", 4);
+  svg.appendChild(c);
+
+  const legend = document.createElement("div");
+  legend.id = "legend";
+  for (const r of rows) {
+    const d = document.createElement("div");
+    d.className = "leg";
+    d.style.color = r.m.color;
+    const pct = (r.t / sum * 100).toFixed(2);
+    d.innerHTML = `<div class="lname"></div><div class="lnums"><span>${r.t.toFixed(2)}s</span><span>${pct}%</span></div>`;
+    d.querySelector(".lname").textContent = r.m.name.toUpperCase();
+    legend.appendChild(d);
+  }
+  els.distBody.append(svg, legend);
+}
+
+/* ================= settings ================= */
+$("gearBtn").addEventListener("click", () => { renderSettings(); els.setDlg.showModal(); });
+$("setClose").addEventListener("click", () => els.setDlg.close());
+
+function renderSettings() {
+  $("setGroup").value = state.song.group;
+  $("setTitle").value = state.song.title;
+  $("setArtist").value = state.song.artist;
+  $("setDur").value = fmt(state.song.duration);
+  $("setDur").disabled = hasAudio;
+  els.audioName.textContent = hasAudio ? state.song.audioName : (state.song.audioName ? state.song.audioName + " (not loaded — tap Load to re-add)" : "none — timer only");
+  renderMemberEditor();
+}
+
+["setGroup", "setTitle", "setArtist"].forEach(id => {
+  $(id).addEventListener("input", () => {
+    state.song.group = $("setGroup").value;
+    state.song.title = $("setTitle").value;
+    state.song.artist = $("setArtist").value;
+    renderSongMeta();
+    save();
+  });
+});
+$("setDur").addEventListener("change", () => {
+  const v = parseDur($("setDur").value);
+  if (v && v > 0) { state.song.duration = v; renderSongMeta(); save(); }
+  $("setDur").value = fmt(state.song.duration);
+});
+
+function renderMemberEditor() {
+  els.memberEditor.innerHTML = "";
+  for (const m of state.members) {
+    const row = document.createElement("div");
+    row.className = "mrow";
+    const av = document.createElement("button");
+    av.className = "avbtn"; av.title = "Set photo";
+    styleAvatar(av, m);
+    av.addEventListener("click", () => { avatarTarget = m.id; $("avatarFile").click(); });
+    const name = document.createElement("input");
+    name.type = "text"; name.value = m.name;
+    name.addEventListener("input", () => { m.name = name.value; renderAll(); save(); });
+    const color = document.createElement("input");
+    color.type = "color"; color.value = m.color;
+    color.addEventListener("input", () => { m.color = color.value; renderAll(); save(); });
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕"; del.title = "Remove member";
+    del.addEventListener("click", () => {
+      if (!confirm(`Remove ${m.name} and their timings?`)) return;
+      state.members = state.members.filter(x => x.id !== m.id);
+      state.segments = state.segments.filter(s => s.memberId !== m.id);
+      renderAll(); renderMemberEditor(); save();
+    });
+    row.append(av, name, color, del);
+    els.memberEditor.appendChild(row);
+  }
+}
+
+$("addMemberBtn").addEventListener("click", () => {
+  const palette = ["#f4547c", "#f79422", "#66b466", "#6666e0", "#bd7ee8", "#e05656", "#4bb8c9"];
+  state.members.push({ id: uid(), name: "New member", color: palette[state.members.length % palette.length], avatar: null });
+  renderAll(); renderMemberEditor(); save();
+});
+
+/* avatar upload -> resized dataURL so localStorage stays small */
+let avatarTarget = null;
+$("avatarFile").addEventListener("change", () => {
+  const file = $("avatarFile").files[0];
+  $("avatarFile").value = "";
+  if (!file || !avatarTarget) return;
+  const img = new Image();
+  img.onload = () => {
+    const size = 160;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const s = Math.min(img.width, img.height);
+    ctx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+    const m = state.members.find(x => x.id === avatarTarget);
+    if (m) { m.avatar = canvas.toDataURL("image/jpeg", 0.82); renderAll(); renderMemberEditor(); save(); }
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+/* audio file — bytes are kept in IndexedDB so the song survives refresh & works offline */
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("line-dist-audio", 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+function idbSet(key, val) {
+  return idbOpen().then(db => new Promise((res, rej) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(val, key);
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+  }));
+}
+function idbGet(key) {
+  return idbOpen().then(db => new Promise((res, rej) => {
+    const rq = db.transaction("kv").objectStore("kv").get(key);
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  }));
+}
+
+function attachAudio(blob, name, persist) {
+  pause();
+  audio.src = URL.createObjectURL(blob);
+  audio.addEventListener("loadedmetadata", function once() {
+    audio.removeEventListener("loadedmetadata", once);
+    hasAudio = true;
+    state.song.audioName = name;
+    state.song.duration = audio.duration; // the file is the source of truth for length
+    seekTo(0);
+    renderSongMeta();
+    if (els.setDlg.open) renderSettings();
+    save();
+    toast((persist ? "Audio loaded: " : "Audio restored: ") + name);
+  });
+  if (persist) idbSet("current", { name, blob }).catch(() => toast("Audio won't survive a refresh (storage full?)"));
+}
+function tryRestoreAudio() {
+  idbGet("current").then(rec => {
+    if (!rec || hasAudio) return;
+    if (!state.song.audioName || state.song.audioName !== rec.name) return; // stored audio belongs to another song
+    attachAudio(rec.blob, rec.name, false);
+  }).catch(() => {});
+}
+$("loadAudioBtn").addEventListener("click", () => $("audioFile").click());
+$("audioFile").addEventListener("change", () => {
+  const file = $("audioFile").files[0];
+  $("audioFile").value = "";
+  if (file) attachAudio(file, file.name, true);
+});
+
+/* data */
+$("clearBtn").addEventListener("click", () => {
+  if (!confirm("Clear all recorded timings for this song?")) return;
+  state.segments = [];
+  save(); renderSegTracks(); updateUndoBtn(); toast("Timings cleared");
+});
+$("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${state.song.group}-${state.song.title}.linedist.json`.replace(/\s+/g, "-").toLowerCase();
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", () => {
+  const file = $("importFile").files[0];
+  $("importFile").value = "";
+  if (!file) return;
+  file.text().then(txt => {
+    const data = JSON.parse(txt);
+    if (!data.members || !data.song) throw new Error("bad file");
+    pause();
+    hasAudio = false; audio.removeAttribute("src");
+    state = Object.assign(defaultState(), data);
+    renderAll(); renderSettings(); save();
+    tryRestoreAudio(); // reattach stored audio if it belongs to this song
+    toast("Loaded " + state.song.title);
+  }).catch(() => toast("Couldn't read that file"));
+});
+
+/* ================= boot ================= */
+function renderAll() {
+  renderSongMeta();
+  renderMembers();
+  els.modeToggle.checked = state.mode === "playback";
+  document.body.classList.toggle("playback", state.mode === "playback");
+  $("countBtn").classList.toggle("on", !!state.countIn);
+  $("detailBtn").classList.toggle("on", !!state.detail);
+  document.body.classList.toggle("detail", !!state.detail);
+  renderSegTracks();
+  updateUndoBtn();
+  updatePlayBtn();
+}
+renderAll();
+tryRestoreAudio();
+(function rafLoop() { tick(); requestAnimationFrame(rafLoop); })();
+setInterval(tick, 300); // rAF pauses in hidden tabs; keep timers/labels current anyway
+
+/* offline support: cache the app shell so it runs with no connection (subway-proof) */
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+</script>
+</body>
+</html>
