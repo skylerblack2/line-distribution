@@ -930,9 +930,8 @@ function idbGet(key) {
 
 function attachAudio(blob, name, persist) {
   pause();
-  audio.src = URL.createObjectURL(blob);
-  audio.addEventListener("loadedmetadata", function once() {
-    audio.removeEventListener("loadedmetadata", once);
+  const onMeta = () => {
+    cleanup();
     hasAudio = true;
     state.song.audioName = name;
     state.song.duration = audio.duration; // the file is the source of truth for length
@@ -941,8 +940,21 @@ function attachAudio(blob, name, persist) {
     if (els.setDlg.open) renderSettings();
     save();
     toast((persist ? "Audio loaded: " : "Audio restored: ") + name);
-  });
-  if (persist) idbSet("current", { name, blob }).catch(() => toast("Audio won't survive a refresh (storage full?)"));
+    if (persist) idbSet("current", { name, blob }).catch(() => toast("Audio won't survive a refresh (storage full?)"));
+  };
+  const onErr = () => {
+    cleanup();
+    audio.removeAttribute("src");
+    hasAudio = false;
+    toast("Couldn't play \"" + name + "\" — doesn't seem to be an audio file");
+  };
+  const cleanup = () => {
+    audio.removeEventListener("loadedmetadata", onMeta);
+    audio.removeEventListener("error", onErr);
+  };
+  audio.addEventListener("loadedmetadata", onMeta);
+  audio.addEventListener("error", onErr);
+  audio.src = URL.createObjectURL(blob);
 }
 function tryRestoreAudio() {
   idbGet("current").then(rec => {
@@ -950,6 +962,12 @@ function tryRestoreAudio() {
     if (!state.song.audioName || state.song.audioName !== rec.name) return; // stored audio belongs to another song
     attachAudio(rec.blob, rec.name, false);
   }).catch(() => {});
+}
+// iOS's file picker grays out audio files that don't match its type registry,
+// so on iOS we drop the filter and validate the pick by loading it instead
+if (/iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+  $("audioFile").removeAttribute("accept");
 }
 $("loadAudioBtn").addEventListener("click", () => $("audioFile").click());
 $("audioFile").addEventListener("change", () => {
