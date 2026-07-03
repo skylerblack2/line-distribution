@@ -82,8 +82,14 @@
   #headline{
     text-align:center; font-size:26px; font-weight:400; line-height:1.25;
     max-width:520px; margin:26px auto 22px;
+    cursor:pointer; user-select:none; -webkit-user-select:none;
   }
   #headline b{font-weight:800;}
+  body.mini-headline #headline{
+    font-size:14px; margin:8px auto 10px; opacity:.55;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:88vw;
+  }
+  body.mini-headline #headline br{display:none;}
 
   /* ---------- member rows ---------- */
   #list{max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:16px;}
@@ -159,11 +165,25 @@
     transform:scale(1.06);
   }
   body.playback #holdCircles{opacity:.35; pointer-events:none;}
+  /* on phones the list avatars are display-only, but the bottom circles are
+     the tap targets — so the list shrinks and the hold buttons grow */
   @media (max-width:560px){
-    .holdbtn{width:46px; height:46px; font-size:19px;}
-    .sidebtn{width:38px; height:38px;}
+    .holdbtn{width:58px; height:58px; font-size:23px;}
+    .sidebtn{width:40px; height:40px;}
     #holdCircles{gap:6px;}
-    body{padding-bottom:calc(160px + env(safe-area-inset-bottom));}
+    body{padding-bottom:calc(170px + env(safe-area-inset-bottom));}
+    .avatar{width:40px; height:40px; font-size:17px;}
+    .pill{gap:9px; padding:5px 16px 5px 5px;}
+    .row .name{font-size:19px;}
+    .barwrap{margin:5px 0 0 50px;}
+    .total{font-size:24px;}
+    #list{gap:12px;}
+    #headline{font-size:22px; margin:18px auto 16px;}
+  }
+  @media (max-width:480px){
+    .toprow{gap:6px;}
+    .icon{width:34px; height:34px; font-size:16px;}
+    .countbtn{font-size:11px; padding:0 7px;}
   }
 
   /* ---------- segment detail view ---------- */
@@ -241,6 +261,7 @@
     <div id="songLabel"></div>
     <button id="countBtn" class="icon countbtn" title="Count-in: 3 beats before play starts">3·2·1</button>
     <button id="detailBtn" class="icon" title="Show segments"><svg viewBox="0 0 20 20" width="18" height="18"><rect x="1" y="8" width="8" height="4.5" rx="2.2" fill="currentColor"/><rect x="10.5" y="8" width="5" height="4.5" rx="2.2" fill="currentColor"/><rect x="17" y="8" width="2.5" height="4.5" rx="1.2" fill="currentColor"/></svg></button>
+    <button id="distBtn" class="icon" title="View distribution"><svg viewBox="0 0 20 20" width="18" height="18"><path d="M9 3 A 8 8 0 1 0 17.6 11.5 L 9 10.5 Z" fill="currentColor"/><path d="M11 2 a8 8 0 0 1 7.5 7 l-7.5 -.6z" fill="currentColor"/></svg></button>
     <button id="undoBtn" class="icon" title="Undo last press">↩</button>
     <button id="gearBtn" class="icon" title="Settings">⚙</button>
     <label class="switch"><span>Playback<br>Mode</span><input type="checkbox" id="modeToggle"><i></i></label>
@@ -261,7 +282,6 @@
   <div id="holdBar">
     <button id="back3Btn" class="sidebtn" title="Back 3 seconds">↺3s</button>
     <div id="holdCircles"></div>
-    <button id="distBtn" class="sidebtn" title="View distribution"><svg viewBox="0 0 20 20" width="20" height="20"><path d="M9 3 A 8 8 0 1 0 17.6 11.5 L 9 10.5 Z" fill="currentColor"/><path d="M11 2 a8 8 0 0 1 7.5 7 l-7.5 -.6z" fill="currentColor"/></svg></button>
   </div>
 </footer>
 <div id="segChip"><span></span><button class="pillbtn danger" id="segDelBtn">Delete</button></div>
@@ -316,6 +336,7 @@ function defaultState() {
     mode: "create",
     countIn: false,
     detail: false,
+    miniHeadline: false,
   };
 }
 
@@ -605,6 +626,12 @@ els.list.addEventListener("click", e => {
   if (!playing && !countingIn) startPlayback(); // jump straight in, no count-in for review
   showSegChip(el.dataset.mid, +el.dataset.start, +el.dataset.end);
 });
+els.headline.title = "Tap to shrink the title";
+els.headline.addEventListener("click", () => {
+  state.miniHeadline = !state.miniHeadline;
+  document.body.classList.toggle("mini-headline", state.miniHeadline);
+  save();
+});
 $("detailBtn").addEventListener("click", () => {
   state.detail = !state.detail;
   document.body.classList.toggle("detail", state.detail);
@@ -621,7 +648,7 @@ function renderSongMeta() {
   els.songLabel.innerHTML = `<b></b> <span style="color:#555"></span>`;
   els.songLabel.querySelector("b").textContent = s.title;
   els.songLabel.querySelector("span").textContent = s.artist ? "– " + s.artist : "";
-  els.headline.innerHTML = `How Would <b></b><br>Sing <b></b>?`;
+  els.headline.innerHTML = `How Would <b></b> <br>Sing <b></b>?`;
   const bs = els.headline.querySelectorAll("b");
   bs[0].textContent = s.group;
   bs[1].textContent = s.title + (s.artist ? " by " + s.artist : "");
@@ -1016,6 +1043,7 @@ function renderAll() {
   $("countBtn").classList.toggle("on", !!state.countIn);
   $("detailBtn").classList.toggle("on", !!state.detail);
   document.body.classList.toggle("detail", !!state.detail);
+  document.body.classList.toggle("mini-headline", !!state.miniHeadline);
   renderSegTracks();
   updateUndoBtn();
   updatePlayBtn();
