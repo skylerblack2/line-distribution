@@ -243,8 +243,6 @@
   .mrow input[type=text]{flex:1; font:inherit; border:2px solid var(--ink); border-radius:10px; padding:7px 10px; min-width:0;}
   .mrow input[type=color]{width:38px; height:38px; border:none; padding:0; background:none; flex:none; cursor:pointer;}
   .mrow .del{background:none; border:none; font-size:20px; flex:none;}
-  .checklabel{display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;}
-  .checklabel input{width:18px; height:18px; flex:none; accent-color:var(--glow);}
   .dlgbtns{display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;}
   .danger{border-color:#c0392b !important; color:#c0392b;}
   .primary{background:var(--ink); color:#fff;}
@@ -301,7 +299,6 @@
   <div class="field"><span>Artist</span><input type="text" id="setArtist"></div>
   <div class="field"><span>Length</span><input type="text" id="setDur" placeholder="3:00"></div>
   <div class="field"><span>Audio</span><button class="pillbtn" id="loadAudioBtn">Load audio file…</button><span id="audioName" style="font-size:13px;color:#666;"></span></div>
-  <div class="field"><span>Snap</span><label class="checklabel"><input type="checkbox" id="setSnap"><span>✨ Nudge presses onto the nearest beat/vocal entrance (needs audio)</span></label></div>
   <h3>Members</h3>
   <div id="memberEditor"></div>
   <button class="pillbtn" id="addMemberBtn">+ Add member</button>
@@ -340,7 +337,6 @@ function defaultState() {
     countIn: false,
     detail: false,
     miniHeadline: false,
-    snap: true,
   };
 }
 
@@ -479,9 +475,7 @@ function endHold(memberId, at) {
   holds.delete(memberId);
   const end = at !== undefined ? at : now();
   if (end - start > 0.05) {
-    let s = snapToOnset(start), e = snapToOnset(end);
-    if (e - s < 0.1) { s = start; e = end; } // never let snapping collapse a segment
-    state.segments.push({ memberId, start: s, end: e });
+    state.segments.push({ memberId, start, end });
     save();
     renderSegTracks();
   }
@@ -863,14 +857,8 @@ function renderSettings() {
   $("setDur").value = fmt(state.song.duration);
   $("setDur").disabled = hasAudio;
   els.audioName.textContent = hasAudio ? state.song.audioName : (state.song.audioName ? state.song.audioName + " (not loaded — tap Load to re-add)" : "none — timer only");
-  $("setSnap").checked = state.snap !== false;
   renderMemberEditor();
 }
-$("setSnap").addEventListener("change", () => {
-  state.snap = $("setSnap").checked;
-  save();
-  if (state.snap && !onsetTimes && audioBlob) analyzeOnsets(audioBlob); // wasn't analyzed while off
-});
 
 ["setGroup", "setTitle", "setArtist"].forEach(id => {
   $(id).addEventListener("input", () => {
@@ -967,86 +955,11 @@ function idbGet(key) {
   }));
 }
 
-/* onset detection: find the moments where the song's energy jumps (beats,
-   vocal entrances) so slightly-off presses can snap onto them.
-   The number-crunching runs in a Worker so it never stalls playback or taps. */
-var onsetTimes = null; // seconds, sorted; null until analysis completes
-let onsetToken = 0;
-let audioBlob = null; // current audio, kept so analysis can run if snap is enabled later
-const ONSET_WORKER_SRC = `onmessage = e => {
-  const { chans, sr } = e.data;
-  const hop = Math.round(sr * 0.01), hopSec = hop / sr; // 10ms resolution
-  const nHops = Math.floor(chans[0].length / hop);
-  const energy = new Float32Array(nHops);
-  for (const data of chans) {
-    for (let i = 0; i < nHops; i++) {
-      let s = 0; const off = i * hop;
-      for (let j = 0; j < hop; j++) { const v = data[off + j]; s += v * v; }
-      energy[i] += s;
-    }
-  }
-  // positive log-energy flux: spikes where sound suddenly gets louder
-  const flux = new Float32Array(nHops);
-  for (let i = 1; i < nHops; i++) {
-    const d = Math.log(energy[i] + 1e-9) - Math.log(energy[i - 1] + 1e-9);
-    flux[i] = d > 0 ? d : 0;
-  }
-  // peaks above an adaptive local threshold become onsets
-  const w = 30, times = [];
-  for (let i = 1; i < nHops - 1; i++) {
-    if (flux[i] <= flux[i - 1] || flux[i] < flux[i + 1]) continue;
-    let s = 0, n = 0;
-    for (let j = Math.max(0, i - w); j < Math.min(nHops, i + w); j++) { s += flux[j]; n++; }
-    if (flux[i] > (s / n) * 2 + 0.05 &&
-        (times.length === 0 || i * hopSec - times[times.length - 1] > 0.08)) {
-      times.push(i * hopSec);
-    }
-  }
-  postMessage(times);
-};`;
-function analyzeOnsets(blob) {
-  onsetTimes = null;
-  const token = ++onsetToken;
-  if (state.snap === false) return; // analyzed on demand if the toggle comes on
-  // 22050Hz is plenty for 10ms onsets and halves the decode memory/CPU
-  blob.arrayBuffer()
-    .then(buf => new OfflineAudioContext(1, 1, 22050).decodeAudioData(buf))
-    .then(ab => {
-      if (token !== onsetToken) return;
-      const chans = [];
-      for (let c = 0; c < ab.numberOfChannels; c++) {
-        const a = new Float32Array(ab.length);
-        ab.copyFromChannel(a, c);
-        chans.push(a);
-      }
-      const url = URL.createObjectURL(new Blob([ONSET_WORKER_SRC], { type: "text/javascript" }));
-      const worker = new Worker(url);
-      URL.revokeObjectURL(url);
-      worker.onmessage = e => {
-        worker.terminate();
-        if (token === onsetToken) onsetTimes = e.data;
-      };
-      worker.onerror = () => worker.terminate();
-      worker.postMessage({ chans, sr: ab.sampleRate }, chans.map(a => a.buffer));
-    })
-    .catch(() => { onsetTimes = null; });
-}
-function snapToOnset(t) {
-  if (state.snap === false || !hasAudio || !onsetTimes || !onsetTimes.length) return t;
-  let lo = 0, hi = onsetTimes.length - 1;
-  while (lo < hi) { const mid = (lo + hi) >> 1; if (onsetTimes[mid] < t) lo = mid + 1; else hi = mid; }
-  let best = onsetTimes[lo];
-  if (lo > 0 && Math.abs(onsetTimes[lo - 1] - t) < Math.abs(best - t)) best = onsetTimes[lo - 1];
-  return Math.abs(best - t) <= 0.15 ? best : t;
-}
-
 function attachAudio(blob, name, persist) {
   pause();
   const onMeta = () => {
     cleanup();
     hasAudio = true;
-    audioBlob = blob;
-    analyzeOnsets(blob);
     state.song.audioName = name;
     state.song.duration = audio.duration; // the file is the source of truth for length
     seekTo(0);
