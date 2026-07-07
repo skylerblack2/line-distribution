@@ -869,6 +869,7 @@ function renderSettings() {
 $("setSnap").addEventListener("change", () => {
   state.snap = $("setSnap").checked;
   save();
+  if (state.snap && !onsetTimes && audioBlob) analyzeOnsets(audioBlob); // wasn't analyzed while off
 });
 
 ["setGroup", "setTitle", "setArtist"].forEach(id => {
@@ -967,50 +968,71 @@ function idbGet(key) {
 }
 
 /* onset detection: find the moments where the song's energy jumps (beats,
-   vocal entrances) so slightly-off presses can snap onto them */
+   vocal entrances) so slightly-off presses can snap onto them.
+   The number-crunching runs in a Worker so it never stalls playback or taps. */
 var onsetTimes = null; // seconds, sorted; null until analysis completes
 let onsetToken = 0;
+let audioBlob = null; // current audio, kept so analysis can run if snap is enabled later
+const ONSET_WORKER_SRC = `onmessage = e => {
+  const { chans, sr } = e.data;
+  const hop = Math.round(sr * 0.01), hopSec = hop / sr; // 10ms resolution
+  const nHops = Math.floor(chans[0].length / hop);
+  const energy = new Float32Array(nHops);
+  for (const data of chans) {
+    for (let i = 0; i < nHops; i++) {
+      let s = 0; const off = i * hop;
+      for (let j = 0; j < hop; j++) { const v = data[off + j]; s += v * v; }
+      energy[i] += s;
+    }
+  }
+  // positive log-energy flux: spikes where sound suddenly gets louder
+  const flux = new Float32Array(nHops);
+  for (let i = 1; i < nHops; i++) {
+    const d = Math.log(energy[i] + 1e-9) - Math.log(energy[i - 1] + 1e-9);
+    flux[i] = d > 0 ? d : 0;
+  }
+  // peaks above an adaptive local threshold become onsets
+  const w = 30, times = [];
+  for (let i = 1; i < nHops - 1; i++) {
+    if (flux[i] <= flux[i - 1] || flux[i] < flux[i + 1]) continue;
+    let s = 0, n = 0;
+    for (let j = Math.max(0, i - w); j < Math.min(nHops, i + w); j++) { s += flux[j]; n++; }
+    if (flux[i] > (s / n) * 2 + 0.05 &&
+        (times.length === 0 || i * hopSec - times[times.length - 1] > 0.08)) {
+      times.push(i * hopSec);
+    }
+  }
+  postMessage(times);
+};`;
 function analyzeOnsets(blob) {
   onsetTimes = null;
   const token = ++onsetToken;
+  if (state.snap === false) return; // analyzed on demand if the toggle comes on
+  // 22050Hz is plenty for 10ms onsets and halves the decode memory/CPU
   blob.arrayBuffer()
-    .then(buf => new OfflineAudioContext(1, 1, 44100).decodeAudioData(buf))
+    .then(buf => new OfflineAudioContext(1, 1, 22050).decodeAudioData(buf))
     .then(ab => {
       if (token !== onsetToken) return;
-      const sr = ab.sampleRate, hop = Math.round(sr * 0.01); // 10ms resolution
-      const nHops = Math.floor(ab.length / hop);
-      const energy = new Float32Array(nHops);
+      const chans = [];
       for (let c = 0; c < ab.numberOfChannels; c++) {
-        const data = ab.getChannelData(c);
-        for (let i = 0; i < nHops; i++) {
-          let s = 0; const off = i * hop;
-          for (let j = 0; j < hop; j++) { const v = data[off + j]; s += v * v; }
-          energy[i] += s;
-        }
+        const a = new Float32Array(ab.length);
+        ab.copyFromChannel(a, c);
+        chans.push(a);
       }
-      // positive log-energy flux: spikes where sound suddenly gets louder
-      const flux = new Float32Array(nHops);
-      for (let i = 1; i < nHops; i++) {
-        const d = Math.log(energy[i] + 1e-9) - Math.log(energy[i - 1] + 1e-9);
-        flux[i] = d > 0 ? d : 0;
-      }
-      // peaks above an adaptive local threshold become onsets
-      const w = 30, times = [];
-      for (let i = 1; i < nHops - 1; i++) {
-        if (flux[i] <= flux[i - 1] || flux[i] < flux[i + 1]) continue;
-        let s = 0, n = 0;
-        for (let j = Math.max(0, i - w); j < Math.min(nHops, i + w); j++) { s += flux[j]; n++; }
-        if (flux[i] > (s / n) * 2 + 0.05 &&
-            (times.length === 0 || i * 0.01 - times[times.length - 1] > 0.08)) {
-          times.push(i * 0.01);
-        }
-      }
-      onsetTimes = times;
+      const url = URL.createObjectURL(new Blob([ONSET_WORKER_SRC], { type: "text/javascript" }));
+      const worker = new Worker(url);
+      URL.revokeObjectURL(url);
+      worker.onmessage = e => {
+        worker.terminate();
+        if (token === onsetToken) onsetTimes = e.data;
+      };
+      worker.onerror = () => worker.terminate();
+      worker.postMessage({ chans, sr: ab.sampleRate }, chans.map(a => a.buffer));
     })
     .catch(() => { onsetTimes = null; });
 }
 function snapToOnset(t) {
-  if (state.snap === false || !onsetTimes || !onsetTimes.length) return t;
+  if (state.snap === false || !hasAudio || !onsetTimes || !onsetTimes.length) return t;
   let lo = 0, hi = onsetTimes.length - 1;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (onsetTimes[mid] < t) lo = mid + 1; else hi = mid; }
   let best = onsetTimes[lo];
@@ -1023,6 +1045,7 @@ function attachAudio(blob, name, persist) {
   const onMeta = () => {
     cleanup();
     hasAudio = true;
+    audioBlob = blob;
     analyzeOnsets(blob);
     state.song.audioName = name;
     state.song.duration = audio.duration; // the file is the source of truth for length
