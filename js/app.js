@@ -20,7 +20,7 @@ const els = {
 
 /* ================= prefs ================= */
 const prefs = Object.assign(
-  { currentId: null, countIn: false, detail: false, miniHeadline: false, snap: true, mode: "create", rate: 1 },
+  { currentId: null, countIn: false, detail: false, miniHeadline: false, snap: false, mode: "create", rate: 1 },
   readJSON(PREFS_KEY));
 function readJSON(key) { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } }
 function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {} }
