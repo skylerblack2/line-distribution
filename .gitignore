@@ -1,5 +1,5 @@
+library/
 *.linedist.json
+*.mp3
+__pycache__/
 .DS_Store
-node_modules/
-shots/
-fixtures/

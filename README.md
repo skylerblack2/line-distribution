@@ -1,67 +1,62 @@
-# Line Distribution v2
+# Line Distribution 2
 
-A rewrite of v1 (the earlier commits in this repo). It's the same idea and look: play a song, hold a member's
-button while they sing, and watch the totals race. It's still a static, offline-capable PWA with no build step.
+Rewrite of the line-distribution app ("How Would X Sing Y?"). Hold a member while they sing; the app
+records the segments, ranks members by time, and plays the result back.
 
-Run locally: `npm start` (serves on http://127.0.0.1:8470). Tests: `npm test`.
+## Run
 
-Phone check: `npm run shots` (with the server running) drives the app in WebKit, the engine Chrome on
-iPhone uses. The profile is iPhone 17 portrait (402 wide) at 620, 681, and 780 tall, which covers
-Chrome with both toolbars, typical, and toolbars collapsed. It writes screenshots to `shots/`, plus
-`shots/report.json` with layout issues (sideways scroll, off-screen elements, small tap targets,
-the keyboard popping up when a dialog opens). `node tools/sheet.mjs 02-main,10-settings 260 out.png 681`
-lays chosen screens side by side. One-time setup: `npm i && npx playwright install webkit chromium`.
+Double-click `start-line-distribution.bat`. It serves the app on http://localhost:8796 and opens it.
 
-## What changed from v1
+Served this way, songs are files on disk:
 
-Faster
-- Segment math is precomputed per member (merged intervals and prefix sums), so each frame does a few binary
-  searches instead of filtering and sorting every segment three times per member.
-- The screen only redraws while something is moving (playing, holding, count-in). v1 ran a loop forever,
-  plus a 300ms timer.
-- Bars and labels move with GPU transforms, and text is only rewritten when it changes.
-- Audio analysis (snap points and waveform) runs in a Web Worker and is cached, so reopening a song
-  doesn't decode the mp3 again.
-- Songs live in IndexedDB. A press saves the segment list only; v1 re-serialized every photo into
-  localStorage on every press.
+```
+library/<song-id>/project.linedist.json   song, members (photos inline), segments, AI voices
+library/<song-id>/<audio file>
+```
 
-More accurate
-- Press and release times come from when your finger or key actually went down, not from when the
-  handler got around to running.
-- Between Safari's coarse `currentTime` updates, the clock interpolates.
+`project.linedist.json` uses the v1 export format, so linecover reads it as is. Deleting a song in
+the app moves its folder to `library/_trash/`.
 
-New
-- Song library: keeps every song with its audio. Tap the song title or the list icon to open it.
-- New songs reuse a group's roster (photos included).
-- Timeline: the seek bar shows the waveform plus one colored lane per member. Tap or drag it to seek.
-- Keyboard: Space plays and pauses, hold 1 to 9 for members, ←/→ jump 3s, Z undoes, Shift+Z redoes,
-  D shows segments.
-- Undo and redo for presses, segment deletes, and "clear all".
-- Speed button (1×, 0.75×, 0.5×). Timings still land in song time.
-- Drag an mp3 or a `.linedist.json` onto the window.
-- "Copy as text" in the distribution view.
-- Lock-screen play and pause controls. The screen stays awake while playing.
-- The audio is saved the moment you pick it, so a deferred load in a background tab can't lose it.
+Hosted as static files (GitHub Pages, phone), there is no server, so songs are kept in the browser's
+IndexedDB and the app works offline through `sw.js`.
 
-iPhone portrait layout (the only phone target)
-- All six members, the header, and the hold buttons fit on one screen with no scrolling, even with
-  both of Chrome's toolbars showing.
-- Member rows are one line each (name, bar, total). The six hold buttons share a single row, and ↺3s
-  sits next to play.
-- No double-tap zoom on buttons, and no text selection or callout while holding. Dialogs open
-  without popping up the keyboard.
-- Audio is stored as raw bytes rather than a Blob, which iOS WebKit handles more reliably.
+## Use
 
-Compatible: it imports v1 `.linedist.json` files, and its exports keep the same shape. On the same origin
-(GitHub Pages), first launch carries v1's current song and audio over.
+| Action | How |
+|---|---|
+| Record a line | Hold a member's circle, or hold keys `1`-`9`. Holding while paused starts playback from that spot. |
+| Record without holding | Tap a circle (under a quarter second) to latch that member. Tap another circle to hand off at that instant. Tap the lit circle to stop. Holding a second circle while one is latched records both. |
+| Retake | `↩` in the phone dock removes the last segment and rewinds to 1.5s before it |
+| Play / pause | `Space` |
+| Seek | Click or drag the waveform, `←` `→` (3s), `Shift+←` `→` (1s) |
+| Zoom the timeline | Mouse wheel over it; `Shift`+wheel pans; double-click the waveform resets |
+| Fix a segment | Drag either edge in its lane. Click it to select and replay; `Delete` removes it |
+| Undo / redo | `Ctrl+Z`, `Ctrl+Shift+Z` or `Ctrl+Y` |
+| Slow down | `1×` button cycles 1× / 0.75× / 0.5× |
+| Switch or add songs | Click the song title. A new song for an existing group copies that group's roster and photos |
+| Load audio, photos, v1 exports | Drop files on the page. Photos are matched to members by file name (`ana.jpg` goes to Ana) |
+
+Playback Mode replays the song with times accruing and the current singer glowing. With the linecover
+studio running on port 8771, the `AI` chip and per-member AI voice pickers appear as in v1.
+
+## Phone
+
+At 560px wide or less the page becomes one non-scrolling screen sized for an iPhone in portrait:
+timeline on top, one row per member, and a dock at the bottom with back 3s, play, retake, and a
+3×2 grid of member photos to tap. On the timeline, a tap on a segment selects it and a tap elsewhere
+seeks. Edge trimming, lane zoom, and undo history buttons stay desktop only; redo is in the header.
+
+Headphone and lock screen controls play, pause, and skip 3s. The screen stays awake during playback
+where the browser allows it, which requires HTTPS.
+
+`server.py` listens on 127.0.0.1 only, so a phone cannot open it as shipped.
 
 ## Files
-- `index.html`, `style.css`: page and look
-- `js/app.js`: UI, transport, holds, library, settings
-- `js/timeline.js`: pure segment math (unit-tested)
-- `js/clock.js`: audio or manual clock
-- `js/db.js`: IndexedDB storage
-- `js/analysis-worker.js`: onset detection and waveform envelope
-- `sw.js`: offline cache (registered on https only, so local edits show on reload)
 
-`.linedist.json` files are gitignored because they embed member photos. `fixtures/` holds the local roster and mp3 that `npm run shots` uses.
+- `server.py`: static files plus the `/api/projects` library API (stdlib only)
+- `js/main.js`: UI, holds, history, dialogs
+- `js/segments.js`: segment merging and the per-member index used every frame
+- `js/player.js`: song clock over the audio element, a timer, or the AI stems
+- `js/timeline.js`: waveform and lanes canvas, zoom, trimming
+- `js/store.js`: library backends (server files or IndexedDB)
+- `js/studio.js`: linecover client and stem playback
