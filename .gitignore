@@ -1,2 +1,5 @@
 *.linedist.json
 .DS_Store
+node_modules/
+shots/
+fixtures/
