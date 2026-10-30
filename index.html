@@ -78,14 +78,21 @@
 <dialog id="libDlg">
   <h2>Songs</h2>
   <div id="libList"></div>
-  <h3>New song</h3>
   <form id="newForm">
+    <h3>1. Group</h3>
     <div class="field"><span>Group</span><input type="text" id="newGroup" list="groupList" required><datalist id="groupList"></datalist></div>
+    <div class="btnrow">
+      <button class="pillbtn small" type="button" id="groupFileBtn">Load group file…</button>
+      <button class="pillbtn small" type="button" id="groupClearBtn" hidden>Use library roster</button>
+    </div>
+    <div id="rosterPreview"></div>
+    <h3>2. Song</h3>
     <div class="field"><span>Song title</span><input type="text" id="newTitle" required></div>
     <div class="field"><span>Artist</span><input type="text" id="newArtist"></div>
+    <div class="field"><span>Audio</span><button class="pillbtn small" type="button" id="newAudioBtn">Choose audio…</button><em id="newAudioName"></em></div>
     <div class="dlgbtns">
       <button class="pillbtn primary" type="submit">Create</button>
-      <button class="pillbtn" type="button" id="importBtn">Import JSON</button>
+      <button class="pillbtn" type="button" id="importBtn">Import song JSON</button>
       <button class="pillbtn" type="button" id="libClose">Close</button>
     </div>
   </form>
@@ -104,6 +111,7 @@
   <h3>Data</h3>
   <div class="dlgbtns">
     <button class="pillbtn" id="exportBtn">Export JSON</button>
+    <button class="pillbtn" id="exportGroupBtn">Export group</button>
     <button class="pillbtn danger" id="clearBtn">Clear all timings</button>
   </div>
   <div class="dlgbtns"><button class="pillbtn primary" id="setClose">Done</button></div>
@@ -111,6 +119,8 @@
 
 <input type="file" id="audioFile" accept="audio/*" hidden>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
+<input type="file" id="groupFile" accept="application/json,.json" hidden>
+<input type="file" id="newAudioFile" accept="audio/*" hidden>
 <input type="file" id="avatarFile" accept="image/*" hidden>
 <audio id="audio" hidden></audio>
 

@@ -921,6 +921,7 @@ $("avatarFile").addEventListener("change", () => {
 
 if (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
   $("audioFile").removeAttribute("accept");
+  $("newAudioFile").removeAttribute("accept");
 }
 $("loadAudioBtn").addEventListener("click", () => $("audioFile").click());
 $("audioFile").addEventListener("change", () => {
@@ -934,13 +935,21 @@ $("clearBtn").addEventListener("click", () => {
   commit([]);
   toast("Timings cleared");
 });
-$("exportBtn").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
+function downloadJson(data, name) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = (slug(`${project.song.group}-${project.song.title}`) || "song") + ".linedist.json";
+  a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+$("exportBtn").addEventListener("click", () => {
+  downloadJson(project, (slug(`${project.song.group}-${project.song.title}`) || "song") + ".linedist.json");
+});
+// a group file is a roster with no song: names, colors, photos, and AI voices
+$("exportGroupBtn").addEventListener("click", () => {
+  const g = groupFromData(project);
+  downloadJson({ kind: "linedist-group", ...g }, (slug(g.group) || "group") + ".group.json");
 });
 
 /* ================= library ================= */
@@ -986,35 +995,130 @@ async function renderLibrary() {
   $("groupList").textContent = "";
   for (const g of groups) $("groupList").appendChild(new Option(g));
 }
-$("libBtn").addEventListener("click", async () => {
+/* New song is two steps: a group (loaded from a file or matched by name in the library), then the song */
+let groupFile = null;
+let newAudio = null;
+function groupFromData(data) {
+  if (!data || !Array.isArray(data.members) || !data.members.length) return null;
+  return {
+    group: String(data.group || (data.song && data.song.group) || "").trim(),
+    members: data.members.map((m, i) => ({
+      name: String(m.name || ""), color: m.color || PALETTE[i % PALETTE.length], avatar: m.avatar || null,
+    })),
+    voices: { ...(data.voices || {}) },
+  };
+}
+const isGroupFile = data => !!data && (data.kind === "linedist-group" || (!data.song && Array.isArray(data.members)));
+
+async function rosterFor(group) {
+  if (groupFile) return groupFile;
+  const key = group.trim().toLowerCase();
+  if (!key) return null;
+  const same = g => (g || "").trim().toLowerCase() === key;
+  if (same(project.song.group)) return groupFromData(project);
+  const hit = libRows.find(p => same(p.group));
+  return hit ? groupFromData(await store.load(hit.id)) : null;
+}
+let previewToken = 0;
+async function renderRoster() {
+  const token = ++previewToken;
+  const group = $("newGroup").value;
+  const roster = await rosterFor(group).catch(() => null);
+  if (token !== previewToken) return;
+  $("groupClearBtn").hidden = !groupFile;
+  const box = $("rosterPreview");
+  box.textContent = "";
+  const note = document.createElement("div");
+  note.className = "note";
+  if (!roster) {
+    note.textContent = group.trim()
+      ? "New group: the song starts with five placeholder members. Rename them and add photos in Settings."
+      : "Type a group name or load a group file.";
+    box.appendChild(note);
+    return;
+  }
+  for (const m of roster.members) {
+    const cell = document.createElement("div");
+    cell.className = "rm";
+    const face = document.createElement("i");
+    styleAvatar(face, m);
+    const name = document.createElement("span");
+    name.textContent = m.name;
+    cell.append(face, name);
+    box.appendChild(cell);
+  }
+  note.textContent = groupFile ? `From ${groupFile.fileName}` : `Same members as your other ${roster.group} songs`;
+  box.appendChild(note);
+}
+async function openLibrary(roster = null) {
   if (saveTimer) flushSave();
   await renderLibrary();
-  $("newGroup").value = project.song.group;
-  $("newTitle").value = "";
-  $("newArtist").value = "";
-  els.libDlg.showModal();
+  if (!els.libDlg.open) {
+    $("newGroup").value = project.song.group;
+    $("newTitle").value = "";
+    $("newArtist").value = "";
+    newAudio = null;
+    $("newAudioName").textContent = "";
+  }
+  groupFile = roster;
+  if (roster && roster.group) $("newGroup").value = roster.group;
+  renderRoster();
+  if (!els.libDlg.open) els.libDlg.showModal();
   $("newTitle").focus();
-});
+}
+async function readGroup(file) {
+  let data = null;
+  try { data = JSON.parse(await file.text()); } catch (e) {}
+  const g = groupFromData(data);
+  if (g) g.fileName = file.name;
+  return g;
+}
+
+$("libBtn").addEventListener("click", () => openLibrary());
 $("libClose").addEventListener("click", () => els.libDlg.close());
+$("newGroup").addEventListener("input", renderRoster);
+$("groupFileBtn").addEventListener("click", () => $("groupFile").click());
+$("groupFile").addEventListener("change", async () => {
+  const file = $("groupFile").files[0];
+  $("groupFile").value = "";
+  if (!file) return;
+  const g = await readGroup(file);
+  if (!g) return toast("No members in that file");
+  openLibrary(g);
+});
+$("groupClearBtn").addEventListener("click", () => { groupFile = null; renderRoster(); });
+$("newAudioBtn").addEventListener("click", () => $("newAudioFile").click());
+$("newAudioFile").addEventListener("change", () => {
+  const file = $("newAudioFile").files[0];
+  $("newAudioFile").value = "";
+  if (!file) return;
+  newAudio = file;
+  $("newAudioName").textContent = file.name;
+});
 $("newForm").addEventListener("submit", async e => {
   e.preventDefault();
   const group = $("newGroup").value.trim(), title = $("newTitle").value.trim();
-  const same = g => g.trim().toLowerCase() === group.toLowerCase();
-  let roster = same(project.song.group) ? project : null;
-  if (!roster) {
-    const hit = libRows.find(p => same(p.group));
-    if (hit) roster = await store.load(hit.id);
-  }
+  const roster = await rosterFor(group).catch(() => null);
+  const audio = newAudio;
+  groupFile = null;
+  newAudio = null;
   els.libDlg.close();
   await createProject(
     { group, title, artist: $("newArtist").value.trim() },
     roster ? roster.members.map(m => ({ ...m, id: uid() })) : undefined,
     roster ? { voices: { ...roster.voices } } : undefined);
-  toast(roster ? `${group} roster copied` : "Song created");
+  toast(roster ? `${title} created with ${roster.members.length} ${group} members` : "Song created");
+  if (audio) await attachAudio(audio, audio.name, true);
 });
 async function importJson(file) {
   try {
     const data = JSON.parse(await file.text());
+    if (isGroupFile(data)) {
+      const g = groupFromData(data);
+      if (!g) throw new Error("no members");
+      g.fileName = file.name;
+      return openLibrary(g);
+    }
     if (!data.members || !data.song) throw new Error("bad file");
     els.libDlg.close();
     const p = sanitize(data);

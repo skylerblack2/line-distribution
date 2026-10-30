@@ -33,7 +33,9 @@ IndexedDB and the app works offline through `sw.js`.
 | Fix a segment | Drag either edge in its lane. Click it to select and replay; `Delete` removes it |
 | Undo / redo | `Ctrl+Z`, `Ctrl+Shift+Z` or `Ctrl+Y` |
 | Slow down | `1×` button cycles 1× / 0.75× / 0.5× |
-| Switch or add songs | Click the song title. A new song for an existing group copies that group's roster and photos |
+| Switch or add songs | Click the song title. New song is two steps: pick the group, then name the song and choose its audio. A group already in the library reuses its roster and photos |
+| Start from a group file | In Songs, `Load group file…` takes a `.group.json` (or any song JSON) and previews the members and photos before you create the song. Importing or dropping a group file opens the same step |
+| Save a group file | Settings → `Export group` writes `<group>.group.json`: names, colors, photos, AI voices, no song |
 | Load audio, photos, v1 exports | Drop files on the page. Photos are matched to members by file name (`ana.jpg` goes to Ana) |
 
 Playback Mode replays the song with times accruing and the current singer glowing. With the linecover
