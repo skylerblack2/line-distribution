@@ -1,4 +1,4 @@
-const CACHE = "linedist2-v3";
+const CACHE = "linedist2-v4";
 const ASSETS = [
   "./", "./index.html", "./app.css", "./manifest.json",
   "./js/main.js", "./js/segments.js", "./js/store.js", "./js/player.js", "./js/timeline.js", "./js/studio.js",

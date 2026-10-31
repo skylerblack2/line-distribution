@@ -60,3 +60,13 @@ events and Export JSON carries it, so a shared export answers those questions di
 main export rather than a second file, because one file is what Tyler already shares and a separate log
 export is one more button to remember on the phone. Nothing on the page shows the log; it is data for
 diagnosis. Group exports leave it out.
+
+## 2026-10-31 16:29 EDT · Total column sized to its font
+
+**What changed.** On the phone each member's running total sat in a fixed 46px column. When the rows grow
+(playback mode, tall screen) the total's font reaches its 26px cap, and a four-character total like
+"20.2" needs about 52px, so its right edge clipped in both the plain and glowing states. The column now
+measures "88.8" at the font the totals are actually using and takes that width, switching to "888.8"
+once any member's total reaches 100 seconds. All rows share the width so the bars keep one right edge.
+Rejected: letting each row's column size to its own number, because the bar ends would jump around as
+digits change during playback. The story is unchanged.

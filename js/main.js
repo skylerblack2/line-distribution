@@ -313,6 +313,7 @@ async function attachAudio(blob, name, persist) {
 /* ================= segments + history ================= */
 function segsChanged(persist = true) {
   index.rebuild(project.members, project.segments);
+  if (measure.big !== undefined && bigTotals() !== measure.big) measure();
   if (selected && !project.segments.includes(selected)) selected = null;
   renderSegChip();
   updateHistoryBtns();
@@ -725,14 +726,22 @@ function measure() {
     const per = Math.max(30, Math.min(92, els.list.clientHeight / n));
     root.setProperty("--rowh", per + "px");
     root.setProperty("--av", Math.max(22, Math.min(60, per - 10)) + "px");
-    // the name slot fits the longest name at the bold weight an active row uses
+    // the name slot fits the longest name at the bold weight an active row uses, and the total column
+    // fits a total at its current font ("88.8", or "888.8" once anyone reaches 100s)
+    const ctx = measure.ctx || (measure.ctx = document.createElement("canvas").getContext("2d"));
     const probe = els.list.querySelector(".row .name");
     if (probe) {
       const cs = getComputedStyle(probe);
-      const ctx = measure.ctx || (measure.ctx = document.createElement("canvas").getContext("2d"));
       ctx.font = `800 ${cs.fontSize} ${cs.fontFamily}`;
       const w = Math.max(...project.members.map(m => ctx.measureText(m.name).width));
       root.setProperty("--namew", Math.ceil(Math.min(w + 2, innerWidth * 0.4)) + "px");
+    }
+    const tot = els.list.querySelector(".row .total");
+    if (tot) {
+      const cs = getComputedStyle(tot);
+      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      measure.big = bigTotals();
+      root.setProperty("--totw", Math.ceil(ctx.measureText(measure.big ? "888.8" : "88.8").width + 4) + "px");
     }
   } else if (n) {
     const per = Math.max(78, Math.min(110, (innerHeight - els.list.offsetTop - 98) / n));
@@ -748,6 +757,7 @@ function measure() {
   for (const r of rows.values()) { r.frac = -1; r.rank = -1; }
   requestRender();
 }
+const bigTotals = () => project.members.some(m => index.total(m.id) >= 99.95);
 new ResizeObserver(() => { if (project) measure(); }).observe(els.list);
 addEventListener("resize", () => { if (project) measure(); });
 
