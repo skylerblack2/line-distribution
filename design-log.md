@@ -43,3 +43,20 @@ of four and the six PV6 members take two short lines.
 **Why this form.** Kept both buttons visible rather than hiding "Use library roster" behind a menu: it only
 appears after a file is loaded, and it is the one way back. Rejected shortening the label to "Clear",
 because "clear" reads like it would empty the group. The story is unchanged.
+
+## 2026-10-31 15:56 EDT · Name slot sized to the longest name; session log in the export
+
+**Name slot.** On the phone the name sat in a fixed 72px slot. In playback mode the dock hides, the rows
+grow, the photo reaches its 60px cap and the name font its 22px cap, and "Jaemin" (73px) clipped to
+"Jaem...". The slot now sizes itself to the group's longest name, measured at the bold weight an active
+row uses, so names never clip while lighting up. It is capped at 40% of the screen so a very long name
+still ellipsizes instead of crushing the bar. Rejected: shrinking the font cap, because the large names
+in playback mode read well from a distance and the problem was the slot, not the type.
+
+**Session log.** Diagnosing the playback drift meant guessing at things the export never recorded:
+whether a seek came before each recorded line and where it came from, where playback started, whether
+the audio clock ever froze, what file format and device were in use. The song now keeps a log of those
+events and Export JSON carries it, so a shared export answers those questions directly. It lives in the
+main export rather than a second file, because one file is what Tyler already shares and a separate log
+export is one more button to remember on the phone. Nothing on the page shows the log; it is data for
+diagnosis. Group exports leave it out.

@@ -78,8 +78,9 @@ const player = new Player($("audio"), {
     els.playBtn.innerHTML = els.dockPlay.innerHTML = player.playing || countingIn ? PAUSE_ICON : PLAY_ICON;
     syncWakeLock();
     requestRender();
+    notePlayState();
   },
-  onEnded: at => endAllHolds(at === undefined ? player.duration : at),
+  onEnded: at => endAllHolds(at === undefined ? player.duration : at, "playback-stopped"),
 });
 
 const studio = new Studio({
@@ -105,11 +106,11 @@ const timeline = new Timeline($("timeline"), {
   duration: () => player.duration,
   styleAvatar,
   requestRender,
-  seek: t => seekTo(t),
+  seek: t => seekTo(t, "timeline"),
   select,
   pickSegment: seg => {
     select(seg);
-    seekTo(seg.start);
+    seekTo(seg.start, "segment");
     if (!player.playing && !countingIn) startPlayback();
   },
   trimStart: seg => { trimBase = project.segments; select(seg); },
@@ -121,10 +122,81 @@ const timeline = new Timeline($("timeline"), {
     return r.seg;
   },
   trimEnd: () => {
-    if (trimBase && trimBase !== project.segments) { pushUndo(trimBase); save(); }
+    if (trimBase && trimBase !== project.segments) {
+      pushUndo(trimBase);
+      if (selected) logEvent("trim", { who: memberName(selected.memberId), start: r3(selected.start), end: r3(selected.end) });
+      save();
+    }
     trimBase = null;
   },
 });
+
+/* ================= session log ================= */
+// Seeks (and where they landed), plays, pauses, presses, and audio clock stalls, kept with the song and
+// included in Export JSON, so timing problems can be traced from an export instead of guessed at.
+const APP_BUILD = "2026-10-31";
+const LOG_MAX = 4000;
+const r3 = x => Math.round(x * 1000) / 1000;
+function logEvent(ev, data) {
+  if (!project) return;
+  const log = project.log || (project.log = []);
+  const e = { at: Date.now(), ev, t: r3(player.now()) };
+  if (data) Object.assign(e, data);
+  log.push(e);
+  if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+  save();
+}
+const memberName = id => { const m = memberById(id); return m ? m.name : "?"; };
+
+let lastSeek = null;
+function noteSeek(from, source) {
+  lastSeek = { wall: performance.now() };
+  if (playMark) { playMark.t = player.now(); playMark.wall = lastSeek.wall; }
+  logEvent("seek", { from: r3(from), to: r3(player.now()), source });
+}
+$("audio").addEventListener("seeked", () => {
+  if (lastSeek) logEvent("seeked", { afterMs: Math.round(performance.now() - lastSeek.wall) });
+});
+
+// A play is logged when it starts. Its pause entry compares song time played with wall time elapsed since
+// the play or the last seek, whichever came later, and summarizes moments the audio clock stood still.
+let wasPlaying = false, playMark = null, clockLast = null, stallSince = 0;
+function notePlayState() {
+  if (player.playing === wasPlaying) return;
+  wasPlaying = player.playing;
+  if (player.playing) {
+    playMark = { wall: performance.now(), t: player.now(), stalls: 0, stallMs: 0, maxStallMs: 0 };
+    clockLast = null; stallSince = 0;
+    logEvent("play", { mode: prefs.mode, rate: prefs.rate, source: player.useAlt ? "ai-stems" : player.hasAudio ? "audio" : "timer" });
+  } else if (playMark) {
+    logEvent("pause", {
+      played: r3(player.now() - playMark.t), wall: r3((performance.now() - playMark.wall) / 1000),
+      stalls: playMark.stalls, stallMs: playMark.stallMs, maxStallMs: playMark.maxStallMs,
+      ended: player.now() >= player.duration - 0.05,
+    });
+    playMark = null;
+  }
+}
+// Runs every frame while playing. A stall is the clock holding still for over 120ms; stalls within
+// 3s of a seek or play start get their own entry.
+function watchClock() {
+  if (!player.playing || !playMark || !player.hasAudio || player.useAlt) { clockLast = null; stallSince = 0; return; }
+  const now = performance.now(), t = player.now();
+  if (clockLast !== null && t === clockLast) { if (!stallSince) stallSince = now; }
+  else {
+    const ms = stallSince ? Math.round(now - stallSince) : 0;
+    if (ms > 120) {
+      playMark.stalls++; playMark.stallMs += ms; playMark.maxStallMs = Math.max(playMark.maxStallMs, ms);
+      const sinceSeek = lastSeek ? stallSince - lastSeek.wall : Infinity;
+      const sincePlay = stallSince - playMark.wall;
+      if (sinceSeek < 3000 || sincePlay < 3000) {
+        logEvent("stall", { ms, afterSeekMs: isFinite(sinceSeek) ? Math.round(sinceSeek) : null, afterPlayMs: Math.round(sincePlay) });
+      }
+    }
+    stallSince = 0;
+  }
+  clockLast = t;
+}
 
 /* ================= persistence ================= */
 let saveTimer = null;
@@ -152,6 +224,7 @@ function blankProject(song, members) {
     members: members || ["A", "B", "C", "D", "E"].map((n, i) => ({ id: uid(), name: "Member " + n, color: PALETTE[i], avatar: null })),
     segments: [],
     voices: {},
+    log: [],
   };
 }
 function sanitize(data) {
@@ -161,6 +234,7 @@ function sanitize(data) {
   const ids = new Set(p.members.map(m => m.id));
   p.segments = normalize((data.segments || []).filter(s => ids.has(s.memberId) && s.end > s.start));
   p.voices = data.voices || {};
+  p.log = Array.isArray(data.log) ? data.log.slice(-LOG_MAX) : [];
   p.song.duration = +p.song.duration || 180;
   return p;
 }
@@ -192,6 +266,10 @@ async function openProject(id) {
   player.manualDuration = project.song.duration;
   timeline.setPeaks(null);
   renderAll();
+  logEvent("open", {
+    build: APP_BUILD, ua: navigator.userAgent, screen: `${screen.width}x${screen.height}`,
+    standalone: matchMedia("(display-mode: standalone)").matches || navigator.standalone === true, store: store.kind,
+  });
   if (!project.song.audioName) return true;
   const blob = await store.getAudio(id).catch(() => null);
   if (blob && token === loadToken) await attachAudio(blob, project.song.audioName || "audio", false);
@@ -213,7 +291,8 @@ async function attachAudio(blob, name, persist) {
   currentAudio = { blob, name };
   project.song.audioName = name;
   project.song.duration = player.duration;
-  seekTo(0);
+  logEvent("audio", { name, type: blob.type || "", bytes: blob.size, duration: r3(player.duration), loaded: persist ? "picked" : "saved copy" });
+  seekTo(0, "load");
   renderSongMeta();
   timeline.resetView();
   if (els.setDlg.open) renderSettings();
@@ -265,6 +344,7 @@ function undo() {
   const prev = undoStack.pop();
   redoStack.push(project.segments);
   toast("Undid " + describeChange(project.segments, prev));
+  logEvent("undo", { what: describeChange(project.segments, prev) });
   project.segments = prev;
   segsChanged();
 }
@@ -273,6 +353,7 @@ function redo() {
   const next = redoStack.pop();
   undoStack.push(project.segments);
   toast("Redid " + describeChange(project.segments, next));
+  logEvent("redo", { what: describeChange(project.segments, next) });
   project.segments = next;
   segsChanged();
 }
@@ -283,7 +364,7 @@ function retake() {
   const before = project.segments;
   undo();
   const removed = before.find(s => !project.segments.includes(s));
-  if (removed) seekTo(Math.max(0, removed.start - 1.5));
+  if (removed) seekTo(Math.max(0, removed.start - 1.5), "retake");
 }
 function updateHistoryBtns() {
   $("undoBtn").disabled = $("retakeBtn").disabled = !undoStack.length && !holds.size;
@@ -307,6 +388,7 @@ function deleteSelected() {
   if (!selected) return;
   const m = memberById(selected.memberId);
   toast(`Deleted ${m ? m.name : ""} ${fmt(selected.start)}–${fmt(selected.end)}`);
+  logEvent("delete", { who: m ? m.name : "?", start: r3(selected.start), end: r3(selected.end) });
   commit(removeSegment(project.segments, selected));
 }
 $("segDelBtn").addEventListener("click", deleteSelected);
@@ -317,16 +399,20 @@ function startHold(id, timeStamp) {
   if (!player.playing) {
     pendingHolds.add(id);
     if (!countingIn) play();
-  } else holds.set(id, player.at(timeStamp));
+  } else {
+    holds.set(id, player.at(timeStamp));
+    logEvent("down", { who: memberName(id), start: r3(holds.get(id)), lagMs: timeStamp ? Math.round(performance.now() - timeStamp) : null });
+  }
   updateHistoryBtns();
   timeline.invalidate();
 }
-function endHold(id, at) {
+function endHold(id, at, how = "release") {
   pendingHolds.delete(id);
   if (latched === id) latched = null;
   if (!holds.has(id)) { requestRender(); return; }
   const start = holds.get(id);
   holds.delete(id);
+  logEvent("seg", { who: memberName(id), start: r3(start), end: r3(at), how });
   commit(addSegment(project.segments, id, start, at));
   updateHistoryBtns();
   timeline.invalidate();
@@ -335,7 +421,7 @@ function endHold(id, at) {
 function padDown(id, e) {
   if (prefs.mode === "playback") return;
   if (latched === id) {
-    endHold(id, player.at(e.timeStamp));
+    endHold(id, player.at(e.timeStamp), "tap-off");
     presses.set(e.pointerId, { id, done: true });
     return;
   }
@@ -350,17 +436,17 @@ function padUp(e, cancelled) {
   if (!tap) endHold(p.id, player.at(e.timeStamp));
   else {
     if (p.prev && p.prev !== p.id && latched === p.prev) {
-      endHold(p.prev, holds.has(p.id) ? holds.get(p.id) : player.now());
+      endHold(p.prev, holds.has(p.id) ? holds.get(p.id) : player.now(), "handoff");
     }
     latched = p.id;
   }
   if ((tap || playRefused) && !player.playing && !countingIn) play();
   requestRender();
 }
-function endAllHolds(at = player.now()) {
+function endAllHolds(at = player.now(), how = "stop") {
   pendingHolds.clear();
   latched = null;
-  for (const id of [...holds.keys()]) endHold(id, at);
+  for (const id of [...holds.keys()]) endHold(id, at, how);
 }
 
 /* ================= transport ================= */
@@ -392,7 +478,7 @@ async function startPlayback() {
   playRefused = !ok;
   if (!ok) return;
   const t0 = player.now();
-  for (const id of pendingHolds) holds.set(id, t0);
+  for (const id of pendingHolds) { holds.set(id, t0); logEvent("down", { who: memberName(id), start: r3(t0), lagMs: null, startedPlay: true }); }
   pendingHolds.clear();
   updateHistoryBtns();
   timeline.invalidate();
@@ -426,20 +512,22 @@ function play() {
 }
 function pauseAll() {
   if (countingIn) { cancelCountIn(); return; }
-  endAllHolds();
+  endAllHolds(player.now(), "pause");
   if (player.playing) player.pause();
 }
 function togglePlay() { player.playing || countingIn ? pauseAll() : play(); }
-function seekTo(t) {
-  endAllHolds();
+function seekTo(t, source = "other") {
+  endAllHolds(player.now(), "seek");
+  const from = player.now();
   player.seek(t);
+  noteSeek(from, source);
   requestRender();
 }
 
 els.playBtn.addEventListener("click", togglePlay);
 els.dockPlay.addEventListener("click", togglePlay);
 $("retakeBtn").addEventListener("click", retake);
-$("back3Btn").addEventListener("click", () => seekTo(player.now() - 3));
+$("back3Btn").addEventListener("click", () => seekTo(player.now() - 3, "back3"));
 $("undoBtn").addEventListener("click", undo);
 $("redoBtn").addEventListener("click", redo);
 $("countBtn").addEventListener("click", () => {
@@ -449,6 +537,7 @@ $("countBtn").addEventListener("click", () => {
 });
 $("rateBtn").addEventListener("click", () => {
   prefs.rate = RATES[(RATES.indexOf(prefs.rate) + 1) % RATES.length];
+  logEvent("rate", { rate: prefs.rate });
   savePrefs();
   applyPrefs();
 });
@@ -459,9 +548,12 @@ $("lanesBtn").addEventListener("click", () => {
   applyPrefs();
 });
 $("modeToggle").addEventListener("change", () => {
-  endAllHolds();
+  endAllHolds(player.now(), "mode-switch");
   if (countingIn) cancelCountIn();
+  const from = player.now();
   player.retarget(() => { prefs.mode = $("modeToggle").checked ? "playback" : "create"; }, prefs.mode === "create");
+  logEvent("mode", { mode: prefs.mode });
+  noteSeek(from, "mode-switch");
   savePrefs();
   applyPrefs();
 });
@@ -526,8 +618,8 @@ if ("mediaSession" in navigator) {
   const on = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch (e) {} };
   on("play", () => { if (!player.playing && !countingIn) play(); });
   on("pause", () => pauseAll());
-  on("seekbackward", () => seekTo(player.now() - 3));
-  on("seekforward", () => seekTo(player.now() + 3));
+  on("seekbackward", () => seekTo(player.now() - 3, "lockscreen"));
+  on("seekforward", () => seekTo(player.now() + 3, "lockscreen"));
 }
 document.addEventListener("gesturestart", e => e.preventDefault());
 
@@ -552,8 +644,8 @@ document.addEventListener("keydown", e => {
     if (!e.repeat) togglePlay();
   } else if (mod && e.code === "KeyZ") { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if (mod && e.code === "KeyY") { e.preventDefault(); redo(); }
-  else if (e.code === "ArrowLeft") { e.preventDefault(); seekTo(player.now() - (e.shiftKey ? 1 : 3)); }
-  else if (e.code === "ArrowRight") { e.preventDefault(); seekTo(player.now() + (e.shiftKey ? 1 : 3)); }
+  else if (e.code === "ArrowLeft") { e.preventDefault(); seekTo(player.now() - (e.shiftKey ? 1 : 3), "key"); }
+  else if (e.code === "ArrowRight") { e.preventDefault(); seekTo(player.now() + (e.shiftKey ? 1 : 3), "key"); }
   else if ((e.code === "Delete" || e.code === "Backspace") && selected) { e.preventDefault(); deleteSelected(); }
   else if (e.code === "Escape") select(null);
 });
@@ -561,7 +653,7 @@ document.addEventListener("keyup", e => {
   const id = keyHolds.get(e.code);
   if (!id) return;
   keyHolds.delete(e.code);
-  endHold(id, player.at(e.timeStamp));
+  endHold(id, player.at(e.timeStamp), "key-release");
 });
 addEventListener("blur", () => {
   for (const id of keyHolds.values()) endHold(id, player.now());
@@ -633,6 +725,15 @@ function measure() {
     const per = Math.max(30, Math.min(92, els.list.clientHeight / n));
     root.setProperty("--rowh", per + "px");
     root.setProperty("--av", Math.max(22, Math.min(60, per - 10)) + "px");
+    // the name slot fits the longest name at the bold weight an active row uses
+    const probe = els.list.querySelector(".row .name");
+    if (probe) {
+      const cs = getComputedStyle(probe);
+      const ctx = measure.ctx || (measure.ctx = document.createElement("canvas").getContext("2d"));
+      ctx.font = `800 ${cs.fontSize} ${cs.fontFamily}`;
+      const w = Math.max(...project.members.map(m => ctx.measureText(m.name).width));
+      root.setProperty("--namew", Math.ceil(Math.min(w + 2, innerWidth * 0.4)) + "px");
+    }
   } else if (n) {
     const per = Math.max(78, Math.min(110, (innerHeight - els.list.offsetTop - 98) / n));
     const av = Math.max(36, Math.min(56, per - 54));
@@ -657,6 +758,7 @@ function requestRender() { if (!rafId) rafId = requestAnimationFrame(frame); }
 function frame() {
   rafId = 0;
   if (!project) return;
+  watchClock();
   render();
   if (player.playing || countingIn || holds.size) requestRender();
 }
@@ -933,6 +1035,7 @@ $("audioFile").addEventListener("change", () => {
 $("clearBtn").addEventListener("click", () => {
   if (!project.segments.length || !confirm("Clear all recorded timings for this song?")) return;
   commit([]);
+  logEvent("clear");
   toast("Timings cleared");
 });
 function downloadJson(data, name) {

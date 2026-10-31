@@ -302,7 +302,7 @@ dialog h3{margin:20px 0 8px; font-size:15px; text-transform:uppercase; letter-sp
   .row{grid-template-columns:1fr 46px; align-items:center; gap:6px; padding:0 6px;}
   .row::before{border-radius:14px; box-shadow:inset 0 0 0 3px var(--glow);}
   .row > div:first-child{display:flex; align-items:center; gap:8px; min-width:0;}
-  .pill{border:none; background:none; padding:0; gap:8px; width:calc(var(--av) + 80px); flex:none;}
+  .pill{border:none; background:none; padding:0; gap:8px; width:calc(var(--av) + 8px + var(--namew, 72px)); flex:none;}
   .avatar{border-width:1.5px;}
   .row .name{font-size:clamp(15px, calc(var(--av) * .42), 22px);}
   .active .avatar{box-shadow:0 0 0 3px var(--glow), 0 0 10px 2px rgba(255,140,26,.6);}
